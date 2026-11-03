@@ -1,81 +1,128 @@
-import { Collection, ObjectId } from "mongodb";
-import { getDB } from "../config/db.js"; // Adjust path to your db connection file
-import { Book, BorrowRecord } from "../types/book.types.js";
 
-// Helper to get the collections safely
-export function getBooksCollection(): Collection<Book> {
-  const db = getDB();
-  return db.collection<Book>("books");
+import { ObjectId } from "mongodb";
+
+import { booksCollection, borrowsCollection } from "../config/collections.js";
+
+import type { Book } from "../types/book.types.js";
+import type { Borrow } from "../types/borrow.types.js";
+
+// ========================================
+// BOOK DATABASE OPERATIONS
+// ========================================
+
+// Get all books
+export async function getAllBooks(): Promise<Book[]> {
+  return await booksCollection()
+    .find()
+    .sort({ createdAt: -1 })
+    .toArray();
 }
 
-export function getBorrowsCollection(): Collection<BorrowRecord> {
-  const db = getDB();
-  return db.collection<BorrowRecord>("borrows");
-}
-
-// --- BOOK HELPERS ---
-
-// 1. Fetch latest books for Home Page New Arrivals (limit 6, sorted newest first)
+// Get latest 6 books for homepage
 export async function getLatestBooks(): Promise<Book[]> {
-  const booksCollection = getBooksCollection();
-  return await booksCollection
-    .find({})
+  return await booksCollection()
+    .find()
     .sort({ createdAt: -1 })
     .limit(6)
     .toArray();
 }
 
-// 2. Find a single book by ID
+// Get one book by ID
 export async function getBookById(id: string): Promise<Book | null> {
-  const booksCollection = getBooksCollection();
   if (!ObjectId.isValid(id)) return null;
-  return await booksCollection.findOne({ _id: new ObjectId(id) });
-}
 
-// 3. Add a new book
-export async function insertBook(bookData: Omit<Book, "_id" | "createdAt">): Promise<any> {
-  const booksCollection = getBooksCollection();
-  return await booksCollection.insertOne({
-    ...bookData,
-    createdAt: new Date(),
+  return await booksCollection().findOne({
+    _id: new ObjectId(id),
   });
 }
 
-// 4. Update an existing book (owner only)
-export async function updateBookById(id: string, updateData: Partial<Book>): Promise<any> {
-  const booksCollection = getBooksCollection();
+// Add a book
+export async function insertBook(
+  bookData: Omit<Book, "_id" | "createdAt" | "updatedAt">
+) {
+  const now = new Date();
+
+  return await booksCollection().insertOne({
+    ...bookData,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+// Update a book
+export async function updateBookById(
+  id: string,
+  updateData: Partial<Book>
+) {
   if (!ObjectId.isValid(id)) return null;
-  return await booksCollection.updateOne(
+
+  return await booksCollection().updateOne(
     { _id: new ObjectId(id) },
-    { $set: updateData }
+    {
+      $set: {
+        ...updateData,
+        updatedAt: new Date(),
+      },
+    }
   );
 }
 
-// 5. Delete a book
-export async function deleteBookById(id: string): Promise<any> {
-  const booksCollection = getBooksCollection();
+// Delete a book
+export async function deleteBookById(id: string) {
   if (!ObjectId.isValid(id)) return null;
-  return await booksCollection.deleteOne({ _id: new ObjectId(id) });
+
+  const bookObjectId = new ObjectId(id);
+
+  // Prevent deleting a book with an active borrow
+  const activeBorrow = await borrowsCollection().findOne({
+    bookId: bookObjectId,
+    returned: false,
+  });
+
+  if (activeBorrow) {
+    return { blocked: true };
+  }
+
+  return await booksCollection().deleteOne({
+    _id: bookObjectId,
+  });
 }
 
+// ========================================
+// BORROW DATABASE OPERATIONS
+// ========================================
 
-// --- BORROW HELPERS ---
-
-// 1. Insert a borrow record
-export async function insertBorrowRecord(borrowData: Omit<BorrowRecord, "_id">): Promise<any> {
-  const borrowsCollection = getBorrowsCollection();
-  return await borrowsCollection.insertOne(borrowData);
+// Insert borrow record
+export async function insertBorrowRecord(
+  borrowData: Omit<Borrow, "_id">
+) {
+  return await borrowsCollection().insertOne(borrowData);
 }
 
-// 2. Get all borrows for a specific user email
-export async function getBorrowsByUserEmail(email: string): Promise<BorrowRecord[]> {
-  const borrowsCollection = getBorrowsCollection();
-  return await borrowsCollection.find({ userEmail: email }).toArray();
+// Get borrows for a user
+export async function getBorrowsByUserEmail(
+  email: string
+): Promise<Borrow[]> {
+  return await borrowsCollection()
+    .find({ userEmail: email })
+    .sort({ borrowDate: -1 })
+    .toArray();
 }
 
-// 3. Delete / Return a borrow record by ID
-export async function deleteBorrowById(id: string): Promise<any> {
-  const borrowsCollection = getBorrowsCollection();
+// Find borrow by ID
+export async function getBorrowById(id: string) {
   if (!ObjectId.isValid(id)) return null;
-  return await borrowsCollection.deleteOne({ _id: new ObjectId(id) });
+
+  return await borrowsCollection().findOne({
+    _id: new ObjectId(id),
+  });
+}
+
+// Delete borrow record
+export async function deleteBorrowById(id: string) {
+  if (!ObjectId.isValid(id)) return null;
+
+  return await borrowsCollection().deleteOne({
+    _id: new ObjectId(id),
+  });
 }
