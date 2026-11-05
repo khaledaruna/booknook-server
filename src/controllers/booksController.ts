@@ -1,4 +1,4 @@
-
+import type { AuthenticatedRequest } from "../middleware/authMiddleware.js";
 import type { Request, Response } from "express";
 import type { Book, BookCategory } from "../types/book.types.js";
 import {
@@ -9,7 +9,6 @@ import {
   deleteBookById,
 } from "../models/bookModels.js";
 
-import type { BookCategory } from "../types/book.types.js";
 
 const categories: BookCategory[] = [
   "Fiction",
@@ -48,7 +47,7 @@ export const getAllBooks = async (_req: Request, res: Response) => {
 
 export const getBookById = async (req: Request, res: Response) => {
   try {
-    const book = await fetchBookById(req.params.id);
+    const book = await fetchBookById(String(req.params.id));
 
     if (!book) {
       res.status(404).json({
@@ -77,57 +76,61 @@ export const getBookById = async (req: Request, res: Response) => {
 // ADD NEW BOOK
 // ========================================
 
-export const createBook = async (req: Request, res: Response) => {
+export async function createBook(
+  req: Request,
+  res: Response
+) {
   try {
+    const authenticatedReq = req as AuthenticatedRequest;
+    const user = authenticatedReq.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
     const {
       title,
       author,
       category,
       image,
       description,
-      addedBy,
       totalCopies,
     } = req.body;
 
+    
     if (
-      !title ||
-      !author ||
-      !category ||
-      !image ||
-      !description ||
-      !addedBy?.name ||
-      !addedBy?.email ||
-      !Number.isInteger(totalCopies) ||
-      totalCopies < 1
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Please provide all required book information",
-      });
-      return;
-    }
+  !title ||
+  !author ||
+  !category ||
+  !image ||
+  !description ||
+  !Number.isInteger(totalCopies) ||
+  totalCopies < 1
+) {
+  res.status(400).json({
+    success: false,
+    message: "Please provide all required book information",
+  });
+  return;
+}
 
-    if (!categories.includes(category)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid book category",
-      });
-      return;
-    }
-
-    const bookData = {
-      title: title.trim(),
-      author: author.trim(),
-      category: category as BookCategory,
-      image: image.trim(),
-      description: description.trim(),
-      addedBy: {
-        name: addedBy.name.trim(),
-        email: addedBy.email.trim().toLowerCase(),
-      },
-      totalCopies,
-      availableCopies: totalCopies,
-    };
+// And when building bookData, use user:
+const bookData = {
+  title: title.trim(),
+  author: author.trim(),
+  category: category as BookCategory,
+  image: image.trim(),
+  description: description.trim(),
+  addedBy: {
+    name: user.name || "BookNook User",
+    email: user.email.trim().toLowerCase(),
+  },
+  totalCopies,
+  availableCopies: totalCopies,
+};
 
     const result = await insertBook(bookData);
 
@@ -149,6 +152,8 @@ export const createBook = async (req: Request, res: Response) => {
   }
 };
 
+
+
 // ========================================
 // UPDATE BOOK
 // ========================================
@@ -157,7 +162,7 @@ export const updateBook = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const existingBook = await fetchBookById(id);
+    const existingBook = await fetchBookById(String(id));
 
     if (!existingBook) {
       res.status(404).json({
@@ -177,7 +182,7 @@ export const updateBook = async (req: Request, res: Response) => {
     } = req.body;
 
     // Only allow these fields to be updated.
-    const updateData: Pattial<Book> = {};
+    const updateData: Partial<Book> = {};
 
     if (title !== undefined) {
       if (typeof title !== "string" || !title.trim()) {
@@ -271,7 +276,7 @@ export const updateBook = async (req: Request, res: Response) => {
       return;
     }
 
-    const result = await updateBookById(id, updateData);
+    const result = await updateBookById(String(id), updateData);
 
     if (!result || result.matchedCount === 0) {
       res.status(404).json({
@@ -281,7 +286,7 @@ export const updateBook = async (req: Request, res: Response) => {
       return;
     }
 
-    const updatedBook = await fetchBookById(id);
+    const updatedBook = await fetchBookById(String(id));
 
     res.status(200).json({
       success: true,
@@ -304,7 +309,7 @@ export const updateBook = async (req: Request, res: Response) => {
 
 export const deleteBook = async (req: Request, res: Response) => {
   try {
-    const result = await deleteBookById(req.params.id);
+    const result = await deleteBookById(String(req.params.id));
 
     if (!result) {
       res.status(400).json({
@@ -322,13 +327,13 @@ export const deleteBook = async (req: Request, res: Response) => {
       return;
     }
 
-    if (result.deletedCount === 0) {
-      res.status(404).json({
-        success: false,
-        message: "Book not found",
-      });
-      return;
-    }
+   if ("deletedCount" in result && result.deletedCount === 0) {
+  res.status(404).json({
+    success: false,
+    message: "Book not found",
+  });
+  return;
+}
 
     res.status(200).json({
       success: true,

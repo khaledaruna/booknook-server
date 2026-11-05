@@ -1,9 +1,12 @@
-import "dotenv/config"; // Must be absolute top to load env variables first
+
+import "dotenv/config";
+
 import express from "express";
 import cors from "cors";
+
 import { connectDB } from "./config/db.js";
 import booksRoutes from "./routes/booksRoutes.js";
-
+import borrowsRoutes from "./routes/borrowsRoutes.js";
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -17,10 +20,7 @@ app.use(
 
 app.use(express.json());
 
-// Routes
-app.use("/books", booksRoutes);
-
-// Health check route
+// Health check
 app.get("/", (_req, res) => {
   res.status(200).json({
     success: true,
@@ -28,10 +28,16 @@ app.get("/", (_req, res) => {
   });
 });
 
-// Start server after successful database connection
+// API routes
+app.use("/books", booksRoutes);
+
+app.use("/borrows", borrowsRoutes);
+
+// Start server after database connection
 async function startServer() {
   try {
     await connectDB();
+
     app.listen(PORT, () => {
       console.log(`BookNook server running on port ${PORT}`);
     });
@@ -42,6 +48,7 @@ async function startServer() {
 }
 
 startServer();
+
 // import express from "express";
 // import cors from "cors";
 // import dotenv from "dotenv";

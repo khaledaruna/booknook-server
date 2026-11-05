@@ -1,4 +1,3 @@
-
 import { Router } from "express";
 
 import {
@@ -9,21 +8,17 @@ import {
   deleteBook,
 } from "../controllers/booksController.js";
 
+import { requireAuth } from "../middleware/authMiddleware.js";
+
 const router = Router();
 
-// GET all books
+// Public route: anyone can see all books
 router.get("/", getAllBooks);
 
-// GET one book
-router.get("/:id", getBookById);
-
-// ADD book
-router.post("/", createBook);
-
-// UPDATE book
-router.patch("/:id", updateBook);
-
-// DELETE book
-router.delete("/:id", deleteBook);
+// Private routes: login required
+router.get("/:id", requireAuth, getBookById);
+router.post("/", requireAuth, createBook);
+router.patch("/:id", requireAuth, updateBook);
+router.delete("/:id", requireAuth, deleteBook);
 
 export default router;
