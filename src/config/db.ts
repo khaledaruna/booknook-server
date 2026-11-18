@@ -1,45 +1,45 @@
-
-import "dotenv/config";
 import { MongoClient, Db } from "mongodb";
+import dotenv from "dotenv";
 
-const MONGODB_URI = process.env.MONGODB_URI;
-const DATABASE_NAME = process.env.DATABASE_NAME || "booknook";
+dotenv.config();
 
-if (!MONGODB_URI) {
-  throw new Error("MONGODB_URI is missing from environment variables");
+const connectionString = process.env.MONGODB_URI;
+
+if (!connectionString) {
+  throw new Error(
+    "Please define the MONGODB_URI environment variable inside .env"
+  );
 }
 
-const client = new MongoClient(MONGODB_URI);
-
-let database: Db | null = null;
+const client = new MongoClient(connectionString);
+let dbInstance: Db;
 
 export async function connectDB(): Promise<Db> {
-  try {
-    if (database) {
-      return database;
-    }
+  if (dbInstance) {
+    return dbInstance;
+  }
 
+  try {
     await client.connect();
 
-    database = client.db(DATABASE_NAME);
+    const databaseName = process.env.DATABASE_NAME || "booknook";
+    dbInstance = client.db(databaseName);
 
-    await database.command({ ping: 1 });
+    console.log("Successfully connected to MongoDB");
 
-    console.log("MongoDB connected successfully!");
-
-    return database;
+    return dbInstance;
   } catch (error) {
     console.error("MongoDB connection failed:", error);
-    throw error;
+    process.exit(1);
   }
 }
 
 export function getDB(): Db {
-  if (!database) {
-    throw new Error("Database is not connected yet");
+  if (!dbInstance) {
+    throw new Error("Database not initialized. Call connectDB first.");
   }
 
-  return database;
+  return dbInstance;
 }
 
 export { client };

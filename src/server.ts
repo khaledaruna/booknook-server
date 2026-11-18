@@ -1,54 +1,42 @@
-
-import "dotenv/config";
-
-import express from "express";
+// src/server.ts
+import express, { Application, Request, Response } from "express";
 import cors from "cors";
-
+import dotenv from "dotenv";
 import { connectDB } from "./config/db.js";
 import booksRoutes from "./routes/booksRoutes.js";
 import borrowsRoutes from "./routes/borrowsRoutes.js";
-const app = express();
+
+dotenv.config();
+
+const app: Application = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(
-  cors({
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
-    credentials: true,
-  })
-);
-
+app.use(cors());
 app.use(express.json());
 
-// Health check
-app.get("/", (_req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Welcome to BookNook API",
-  });
+// API Routes
+app.use("/api/books", booksRoutes);
+app.use("/api/borrows", borrowsRoutes);
+
+// Health Check Route
+app.get("/", (_req: Request, res: Response) => {
+  res.json({ success: true, message: "BookNook Server is running!" });
 });
 
-// API routes
-app.use("/books", booksRoutes);
-
-app.use("/borrows", borrowsRoutes);
-
-// Start server after database connection
+// Initialize DB and Start Server
 async function startServer() {
   try {
     await connectDB();
-
     app.listen(PORT, () => {
-      console.log(`BookNook server running on port ${PORT}`);
+      console.log(`Server is running on port ${PORT}`);
     });
   } catch (error) {
-    console.error("Server startup failed:", error);
-    process.exit(1);
+    console.error("Failed to start server:", error);
   }
 }
 
 startServer();
-
 // import express from "express";
 // import cors from "cors";
 // import dotenv from "dotenv";
