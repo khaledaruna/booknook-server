@@ -1,128 +1,82 @@
-
-import { ObjectId } from "mongodb";
-
+import { ObjectId, type Filter } from "mongodb";
 import { booksCollection, borrowsCollection } from "../config/collections.js";
-
 import type { Book } from "../types/book.types.js";
-import type { Borrow } from "../types/borrow.types.js";
 
-// ========================================
-// BOOK DATABASE OPERATIONS
-// ========================================
+export interface BookQueryOptions {
+  category?: string;
+  search?: string;
+  ownerEmail?: string;
+  limit?: number;
+}
 
-// Get all books
-export async function getAllBooks(): Promise<Book[]> {
-  return await booksCollection()
-    .find()
-    .sort({ createdAt: -1 })
+export async function getAllBooks(options: BookQueryOptions = {}) {
+  const filter: Filter<Book> = {};
+
+  if (options.ownerEmail) {
+    filter["addedBy.email"] = options.ownerEmail.toLowerCase();
+  }
+
+  if (options.category) {
+    filter.category = options.category as Book["category"];
+  }
+
+  if (options.search) {
+    const escapedSearch = options.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    filter.$or = [
+      { title: { $regex: escapedSearch, $options: "i" } },
+      { author: { $regex: escapedSearch, $options: "i" } },
+    ];
+  }
+
+  return booksCollection()
+    .find(filter)
+    .sort({ addedAt: -1, _id: -1 })
+    .limit(options.limit ?? 100)
     .toArray();
 }
 
-// Get latest 6 books for homepage
-export async function getLatestBooks(): Promise<Book[]> {
-  return await booksCollection()
-    .find()
-    .sort({ createdAt: -1 })
-    .limit(6)
-    .toArray();
-}
-
-// Get one book by ID
-export async function getBookById(id: string): Promise<Book | null> {
+export async function getBookById(id: string) {
   if (!ObjectId.isValid(id)) return null;
-
-  return await booksCollection().findOne({
-    _id: new ObjectId(id),
-  });
+  return booksCollection().findOne({ _id: new ObjectId(id) });
 }
 
-// Add a book
-export async function insertBook(
-  bookData: Omit<Book, "_id" | "createdAt" | "updatedAt">
-) {
-  const now = new Date();
-
-  return await booksCollection().insertOne({
-    ...bookData,
-    createdAt: now,
-    updatedAt: now,
-  });
+export async function insertBook(bookData: Omit<Book, "_id">) {
+  return booksCollection().insertOne(bookData as Book);
 }
 
-// Update a book
-export async function updateBookById(
+export async function updateBookByIdAndOwner(
   id: string,
+  ownerEmail: string,
   updateData: Partial<Book>
 ) {
   if (!ObjectId.isValid(id)) return null;
 
-  return await booksCollection().updateOne(
-    { _id: new ObjectId(id) },
+  return booksCollection().updateOne(
     {
-      $set: {
-        ...updateData,
-        updatedAt: new Date(),
-      },
-    }
+      _id: new ObjectId(id),
+      "addedBy.email": ownerEmail.toLowerCase(),
+    },
+    { $set: updateData }
   );
 }
 
-// Delete a book
-export async function deleteBookById(id: string) {
+export async function deleteBookByIdAndOwner(id: string, ownerEmail: string) {
   if (!ObjectId.isValid(id)) return null;
 
-  const bookObjectId = new ObjectId(id);
+  const bookId = new ObjectId(id);
 
-  // Prevent deleting a book with an active borrow
+  // Prevent deleting a book that still has active borrows
   const activeBorrow = await borrowsCollection().findOne({
-    bookId: bookObjectId,
+    bookId,
     returned: false,
   });
 
   if (activeBorrow) {
-    return { blocked: true };
+    return { blocked: true as const };
   }
 
-  return await booksCollection().deleteOne({
-    _id: bookObjectId,
-  });
-}
-
-// ========================================
-// BORROW DATABASE OPERATIONS
-// ========================================
-
-// Insert borrow record
-export async function insertBorrowRecord(
-  borrowData: Omit<Borrow, "_id">
-) {
-  return await borrowsCollection().insertOne(borrowData);
-}
-
-// Get borrows for a user
-export async function getBorrowsByUserEmail(
-  email: string
-): Promise<Borrow[]> {
-  return await borrowsCollection()
-    .find({ userEmail: email })
-    .sort({ borrowDate: -1 })
-    .toArray();
-}
-
-// Find borrow by ID
-export async function getBorrowById(id: string) {
-  if (!ObjectId.isValid(id)) return null;
-
-  return await borrowsCollection().findOne({
-    _id: new ObjectId(id),
-  });
-}
-
-// Delete borrow record
-export async function deleteBorrowById(id: string) {
-  if (!ObjectId.isValid(id)) return null;
-
-  return await borrowsCollection().deleteOne({
-    _id: new ObjectId(id),
+  return booksCollection().deleteOne({
+    _id: bookId,
+    "addedBy.email": ownerEmail.toLowerCase(),
   });
 }

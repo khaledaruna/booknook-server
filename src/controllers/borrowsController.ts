@@ -1,36 +1,38 @@
 import type { Request, Response } from "express";
 import { ObjectId } from "mongodb";
-
+import { z } from "zod";
 import { client, getDB } from "../config/db.js";
-import { booksCollection, borrowsCollection } from "../config/collections.js";
+import { borrowsCollection } from "../config/collections.js";
 import type { AuthenticatedRequest } from "../middleware/authMiddleware.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { createHttpError } from "../utils/httpError.js";
 
-export async function createBorrow(req: Request, res: Response) {
+const borrowSchema = z.object({
+  bookId: z.string().refine(ObjectId.isValid, "Invalid book ID"),
+  returnDate: z.string().optional(),
+});
+
+export const createBorrow = asyncHandler(async (req: Request, res: Response) => {
   const user = (req as AuthenticatedRequest).user;
 
   if (!user) {
-    return res.status(401).json({
-      success: false,
-      message: "Unauthorized",
-    });
+    throw createHttpError(401, "Unauthorized");
   }
 
-  const { bookId, returnDate } = req.body;
+  const parsed = borrowSchema.safeParse(req.body);
 
-  if (!ObjectId.isValid(bookId)) {
-    return res.status(400).json({
-      success: false,
-      message: "Invalid book ID",
-    });
+  if (!parsed.success) {
+    throw createHttpError(400, "Invalid borrow data");
   }
 
-  const dueDate = new Date(returnDate);
+  const { bookId, returnDate } = parsed.data;
+  const borrowDate = new Date();
+  const dueDate = returnDate
+    ? new Date(returnDate)
+    : new Date(borrowDate.getTime() + 14 * 24 * 60 * 60 * 1000);
 
-  if (!returnDate || Number.isNaN(dueDate.getTime()) || dueDate <= new Date()) {
-    return res.status(400).json({
-      success: false,
-      message: "Please select a valid future return date",
-    });
+  if (Number.isNaN(dueDate.getTime()) || dueDate <= borrowDate) {
+    throw createHttpError(400, "Please select a valid future return date");
   }
 
   const session = client.startSession();
@@ -43,13 +45,10 @@ export async function createBorrow(req: Request, res: Response) {
       const borrows = getDB().collection("borrows");
       const id = new ObjectId(bookId);
 
-      const book = await books.findOne(
-        { _id: id },
-        { session }
-      );
+      const book = await books.findOne({ _id: id }, { session });
 
       if (!book) {
-        throw new Error("BOOK_NOT_FOUND");
+        throw createHttpError(404, "Book not found");
       }
 
       const existingBorrow = await borrows.findOne(
@@ -62,22 +61,17 @@ export async function createBorrow(req: Request, res: Response) {
       );
 
       if (existingBorrow) {
-        throw new Error("ALREADY_BORROWED");
+        throw createHttpError(409, "You have already borrowed this book");
       }
 
       const stockUpdate = await books.updateOne(
-        {
-          _id: id,
-          availableCopies: { $gt: 0 },
-        },
-        {
-          $inc: { availableCopies: -1 },
-        },
+        { _id: id, availableCopies: { $gt: 0 } },
+        { $inc: { availableCopies: -1 } },
         { session }
       );
 
       if (stockUpdate.modifiedCount !== 1) {
-        throw new Error("OUT_OF_STOCK");
+        throw createHttpError(409, "This book is not available");
       }
 
       const borrow = {
@@ -85,7 +79,8 @@ export async function createBorrow(req: Request, res: Response) {
         bookTitle: book.title,
         bookImage: book.image,
         userEmail: user.email.toLowerCase(),
-        borrowDate: new Date(),
+        userName: user.name || "BookNook User",
+        borrowDate,
         returnDate: dueDate,
         returned: false,
         createdAt: new Date(),
@@ -99,92 +94,46 @@ export async function createBorrow(req: Request, res: Response) {
       };
     });
 
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
       message: "Book borrowed successfully",
       data: createdBorrow,
     });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-
-    if (message === "BOOK_NOT_FOUND") {
-      return res.status(404).json({
-        success: false,
-        message: "Book not found",
-      });
-    }
-
-    if (message === "ALREADY_BORROWED") {
-      return res.status(409).json({
-        success: false,
-        message: "You already have an active borrow for this book",
-      });
-    }
-
-    if (message === "OUT_OF_STOCK") {
-      return res.status(409).json({
-        success: false,
-        message: "No copies are currently available",
-      });
-    }
-
-    console.error("Create borrow error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to borrow book",
-    });
   } finally {
     await session.endSession();
   }
-}
+});
 
-export async function getMyBorrows(req: Request, res: Response) {
-  try {
-    const user = (req as AuthenticatedRequest).user;
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
-    }
-
-    const borrows = await borrowsCollection()
-      .find({ userEmail: user.email.toLowerCase() })
-      .sort({ borrowDate: -1 })
-      .toArray();
-
-    return res.status(200).json({
-      success: true,
-      message: "Borrow records retrieved successfully",
-      data: borrows,
-    });
-  } catch (error) {
-    console.error("Get borrows error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to retrieve borrow records",
-    });
-  }
-}
-
-export async function returnBorrow(req: Request, res: Response) {
+export const getMyBorrows = asyncHandler(async (req: Request, res: Response) => {
   const user = (req as AuthenticatedRequest).user;
 
   if (!user) {
-    return res.status(401).json({
-      success: false,
-      message: "Unauthorized",
-    });
+    throw createHttpError(401, "Unauthorized");
   }
 
-  if (!ObjectId.isValid(String(req.params.id))) {
-    return res.status(400).json({
-      success: false,
-      message: "Invalid borrow ID",
-    });
+  const borrows = await borrowsCollection()
+    .find({ userEmail: user.email.toLowerCase() })
+    .sort({ borrowDate: -1 })
+    .toArray();
+
+  res.status(200).json({
+    success: true,
+    message: "Borrow records retrieved successfully",
+    data: borrows,
+  });
+});
+
+export const returnBorrow = asyncHandler(async (req: Request, res: Response) => {
+  const user = (req as AuthenticatedRequest).user;
+
+  if (!user) {
+    throw createHttpError(401, "Unauthorized");
+  }
+
+  const id = String(req.params.id);
+
+  if (!ObjectId.isValid(id)) {
+    throw createHttpError(400, "Invalid borrow ID");
   }
 
   const session = client.startSession();
@@ -193,8 +142,7 @@ export async function returnBorrow(req: Request, res: Response) {
     await session.withTransaction(async () => {
       const borrows = getDB().collection("borrows");
       const books = getDB().collection("books");
-
-      const borrowId = new ObjectId(String(req.params.id));
+      const borrowId = new ObjectId(id);
 
       const borrow = await borrows.findOne(
         {
@@ -206,22 +154,17 @@ export async function returnBorrow(req: Request, res: Response) {
       );
 
       if (!borrow) {
-        throw new Error("BORROW_NOT_FOUND");
+        throw createHttpError(404, "Borrow record not found");
       }
 
       const result = await borrows.updateOne(
-        {
-          _id: borrowId,
-          returned: false,
-        },
-        {
-          $set: { returned: true },
-        },
+        { _id: borrowId, returned: false },
+        { $set: { returned: true } },
         { session }
       );
 
       if (result.modifiedCount !== 1) {
-        throw new Error("ALREADY_RETURNED");
+        throw createHttpError(409, "This book has already been returned");
       }
 
       await books.updateOne(
@@ -231,34 +174,11 @@ export async function returnBorrow(req: Request, res: Response) {
       );
     });
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       message: "Book returned successfully",
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-
-    if (message === "BORROW_NOT_FOUND") {
-      return res.status(404).json({
-        success: false,
-        message: "Active borrow not found",
-      });
-    }
-
-    if (message === "ALREADY_RETURNED") {
-      return res.status(409).json({
-        success: false,
-        message: "This book has already been returned",
-      });
-    }
-
-    console.error("Return book error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to return book",
     });
   } finally {
     await session.endSession();
   }
-}
+});

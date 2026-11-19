@@ -8,6 +8,7 @@ export interface Borrow {
   bookImage: string;
 
   userEmail: string;
+  userName?: string;
 
   borrowDate: Date;
   returnDate: Date;
