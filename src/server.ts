@@ -11,10 +11,27 @@ dotenv.config();
 const app: Application = express();
 const PORT = process.env.PORT || 5000;
 
+// Allowed Origins for CORS
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://booknook-client-oita.vercel.app",
+  "https://booknookbd.vercel.app",
+  ...(process.env.CLIENT_URL || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+];
+
 // Middleware
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || true,
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin ${origin} not allowed by CORS`));
+      }
+    },
     credentials: true,
   })
 );
