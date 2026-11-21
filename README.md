@@ -4,7 +4,7 @@ A RESTful backend API for **BookNook**, a small online library management applic
 
 ## Live API
 
-- **Frontend:** https://boooknook-client-oitaa.vercel.app
+- **Frontend:** https://boooknook-client-oita.vercel.app
 - **Backend API:** https://booknook-server-v982.onrender.com
 
 ## Repository
